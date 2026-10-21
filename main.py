@@ -12,6 +12,9 @@ Each entry may carry its own theatre filter after a '|':
     https://in.bookmyshow.com/movies/.../ET00451914|Aries Plex;https://in.bookmyshow.com/movies/.../ET00519195
 
 An entry without '|' uses BMS_THEATRE (empty = all theatres).
+A third field sets the language BMS filters by (e.g. malayalam):
+    https://in.bookmyshow.com/movies/trivandrum/titans/ET00519195||malayalam
+(empty theatre field = fall back to BMS_THEATRE; no language = not sent.)
 BMS_DATES and BMS_TIME apply to every entry.
 """
 
@@ -19,6 +22,7 @@ import os
 import re
 import sys
 import json
+import time
 from html import escape
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -32,7 +36,7 @@ import requests
 DEFAULT_URLS = (
     "https://in.bookmyshow.com/movies/thiruvananthapuram-trivandrum/ramayana/ET00451914"
     ";"
-    "https://in.bookmyshow.com/movies/trivandrum/titans/ET00519195"
+    "https://in.bookmyshow.com/movies/trivandrum/titans/ET00519195||malayalam"
 )
 
 CONFIG = {
@@ -128,14 +132,17 @@ class DateInfo:
 # URL PARSER + REGION RESOLVER
 # ──────────────────────────────────────────────────────────────────────
 def parse_watches(raw):
-    """'url|theatre;url2' -> [(url, theatre_or_None), ...]"""
+    """'url|theatre|language;url2' -> [(url, theatre_or_None, language), ...]"""
     watches = []
     for item in re.split(r"[;\n]+", raw or ""):
         item = item.strip()
         if not item:
             continue
-        url, _, theatre = item.partition("|")
-        watches.append((url.strip(), theatre.strip() or None))
+        parts = [p.strip() for p in item.split("|")]
+        url = parts[0]
+        theatre = parts[1] if len(parts) > 1 and parts[1] else None
+        language = parts[2].lower() if len(parts) > 2 else ""
+        watches.append((url, theatre, language))
     return watches
 
 
@@ -167,19 +174,40 @@ def resolve_region(slug):
 # BMS API
 # ──────────────────────────────────────────────────────────────────────
 API_URL = (
-    "https://in.bookmyshow.com/api/movies-data/v4/"
+    "https://in.bookmyshow.com/api/movies-data/v5/"
     "showtimes-by-event/primary-dynamic"
 )
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/145.0.0.0 Safari/537.36"
+)
+SESSION = requests.Session()
+RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
+RETRY_DELAYS = (3, 8)          # seconds before retry 2 and retry 3
+
+
+def warm_up(event_code, region_slug):
+    """Best-effort visit of the showtimes page so the session picks up cookies."""
+    try:
+        r = SESSION.get(
+            f"https://in.bookmyshow.com/movies/{region_slug}/buytickets/{event_code}",
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=15,
+        )
+        print(f"  🍪 warm-up page: HTTP {r.status_code}")
+    except requests.RequestException as e:
+        print(f"  🍪 warm-up failed (continuing): {e}")
 
 
 def fetch_bms(event_code, date_code, region_code, region_slug,
-              lat, lon, geohash):
+              lat, lon, geohash, language=""):
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/145.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": USER_AGENT,
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": (
@@ -199,22 +227,32 @@ def fetch_bms(event_code, date_code, region_code, region_slug,
         "x-lsid": "",
     }
     params = {
-        "eventCode": event_code,
+        "etCodes": event_code,
         "dateCode": date_code or "",
         "isDesktop": "true",
         "regionCode": region_code,
         "xLocationShared": "false",
         "memberId": "", "lsId": "", "subCode": "",
-        "lat": lat, "lon": lon,
+        "appCode": "WEB",
+        "refEventCode": event_code,
     }
-    try:
-        resp = requests.get(API_URL, headers=headers,
-                            params=params, timeout=15)
-        if resp.status_code == 200:
-            return resp.json()
-        print(f"  HTTP {resp.status_code}")
-    except (requests.RequestException, ValueError) as e:
-        print(f"  Request failed: {e}")
+    if language:
+        params["language"] = language
+
+    for attempt in range(1, len(RETRY_DELAYS) + 2):
+        try:
+            resp = SESSION.get(API_URL, headers=headers,
+                               params=params, timeout=15)
+            if resp.status_code == 200:
+                return resp.json()
+            body = " ".join(resp.text[:300].split())
+            print(f"  HTTP {resp.status_code} (attempt {attempt}) body: {body}")
+            if resp.status_code not in RETRY_STATUSES:
+                return None
+        except (requests.RequestException, ValueError) as e:
+            print(f"  Request failed (attempt {attempt}): {e}")
+        if attempt <= len(RETRY_DELAYS):
+            time.sleep(RETRY_DELAYS[attempt - 1])
     return None
 
 
@@ -578,7 +616,7 @@ def send_email(subject, changes, shows, movie_info, page_url):
 # ──────────────────────────────────────────────────────────────────────
 # ONE WATCH (one movie)
 # ──────────────────────────────────────────────────────────────────────
-def collect_shows(event_code, region, explicit_dates, url_date):
+def collect_shows(event_code, region, explicit_dates, url_date, language=""):
     """
     Fetch showtimes for one movie.
     - explicit_dates given  -> fetch exactly those dates.
@@ -596,6 +634,8 @@ def collect_shows(event_code, region, explicit_dates, url_date):
     movie_info = {"name": "Unknown", "language": ""}
     any_ok = False
 
+    warm_up(event_code, region_slug)
+
     while queue and len(fetched) < MAX_DATES_PER_WATCH:
         dc = queue.pop(0)
         if dc in fetched:
@@ -603,7 +643,7 @@ def collect_shows(event_code, region, explicit_dates, url_date):
         fetched.add(dc)
 
         data = fetch_bms(event_code, dc, region_code, region_slug,
-                         lat, lon, geohash)
+                         lat, lon, geohash, language)
         if not data:
             print(f"  ⚠️  No data for date {dc or '(default)'}")
             continue
@@ -642,7 +682,7 @@ def collect_shows(event_code, region, explicit_dates, url_date):
     return movie_info, list(shows_by_key.values()), list(dates_by_code.values()), any_ok
 
 
-def process_watch(url, theatre_override, old_event):
+def process_watch(url, theatre_override, language, old_event):
     """
     Returns (event_code, new_event_state_or_None, ok).
     new_event_state None means "keep the old state" (fetch/email failed).
@@ -667,10 +707,10 @@ def process_watch(url, theatre_override, old_event):
 
     print(f"  Event: {event_code}  Region: {region[0]} ({region[1]})  "
           f"Dates: {explicit_dates or [url_date or '(auto)']}  "
-          f"Theatre: {theatre or '(all)'}")
+          f"Theatre: {theatre or '(all)'}  Language: {language or '(any)'}")
 
     movie_info, all_shows, all_dates, any_ok = collect_shows(
-        event_code, region, explicit_dates, url_date
+        event_code, region, explicit_dates, url_date, language
     )
 
     if not any_ok:
@@ -741,10 +781,10 @@ def main():
     state = load_state()
     failures = 0
 
-    for i, (url, theatre_override) in enumerate(watches, 1):
+    for i, (url, theatre_override, language) in enumerate(watches, 1):
         print(f"\n── Watch {i}/{len(watches)}: {url}")
         old_event = state["events"].get(parse_bms_url(url)["event_code"] or "")
-        event_code, new_event, ok = process_watch(url, theatre_override, old_event)
+        event_code, new_event, ok = process_watch(url, theatre_override, language, old_event)
         if new_event is not None:
             state["events"][event_code] = new_event
         if not ok:
