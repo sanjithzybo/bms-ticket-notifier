@@ -6,6 +6,11 @@ on:
     - cron: '*/30 * * * *'
   workflow_dispatch:  # Manual trigger button
 
+# Prevent overlapping runs from racing to push bms_state.json
+concurrency:
+  group: bms-ticket-checker
+  cancel-in-progress: false
+
 jobs:
   check-tickets:
     runs-on: ubuntu-latest
@@ -36,7 +41,10 @@ jobs:
           BMS_TIME: ${{ vars.BMS_TIME }}
         run: uv run main.py
 
+      # Runs even if the checker exited with an error, so state for the
+      # movie that succeeded still gets saved (and its email isn't re-sent).
       - name: Commit updated state
+        if: ${{ !cancelled() }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
