@@ -2,13 +2,13 @@
   "events": {
     "ET00451914": {
       "dates": {
-        "20261025": "NOT_OPEN",
         "20261026": "NOT_OPEN",
         "20261027": "NOT_OPEN",
         "20261028": "NOT_OPEN",
         "20261029": "NOT_OPEN",
         "20261030": "NOT_OPEN",
-        "20261031": "NOT_OPEN"
+        "20261031": "NOT_OPEN",
+        "20261101": "NOT_OPEN"
       },
       "fingerprint": "Aries Plex||",
       "shows": {}
