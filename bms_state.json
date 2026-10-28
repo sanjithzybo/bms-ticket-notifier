@@ -2,26 +2,26 @@
   "events": {
     "ET00451914": {
       "dates": {
-        "20261028": "NOT_OPEN",
         "20261029": "NOT_OPEN",
         "20261030": "NOT_OPEN",
         "20261031": "NOT_OPEN",
         "20261101": "NOT_OPEN",
         "20261102": "NOT_OPEN",
-        "20261103": "NOT_OPEN"
+        "20261103": "NOT_OPEN",
+        "20261104": "NOT_OPEN"
       },
       "fingerprint": "Aries Plex||",
       "shows": {}
     },
     "ET00519195": {
       "dates": {
-        "20261022": "BOOKABLE",
-        "20261023": "NOT_OPEN",
-        "20261024": "NOT_OPEN",
-        "20261025": "NOT_OPEN",
-        "20261026": "NOT_OPEN",
-        "20261027": "NOT_OPEN",
-        "20261028": "NOT_OPEN"
+        "20261029": "AVAILABLE",
+        "20261030": "AVAILABLE",
+        "20261031": "AVAILABLE",
+        "20261101": "BOOKABLE",
+        "20261102": "NOT_OPEN",
+        "20261103": "NOT_OPEN",
+        "20261104": "NOT_OPEN"
       },
       "fingerprint": "Aries Plex||",
       "shows": {}
