@@ -2,26 +2,26 @@
   "events": {
     "ET00451914": {
       "dates": {
-        "20261105": "NOT_OPEN",
         "20261106": "NOT_OPEN",
         "20261107": "NOT_OPEN",
         "20261108": "NOT_OPEN",
         "20261109": "NOT_OPEN",
         "20261110": "NOT_OPEN",
-        "20261111": "NOT_OPEN"
+        "20261111": "NOT_OPEN",
+        "20261112": "NOT_OPEN"
       },
       "fingerprint": "Aries Plex||",
       "shows": {}
     },
     "ET00519195": {
       "dates": {
-        "20261105": "NOT_OPEN",
         "20261106": "NOT_OPEN",
         "20261107": "NOT_OPEN",
         "20261108": "NOT_OPEN",
         "20261109": "NOT_OPEN",
         "20261110": "NOT_OPEN",
-        "20261111": "NOT_OPEN"
+        "20261111": "NOT_OPEN",
+        "20261112": "NOT_OPEN"
       },
       "fingerprint": "Aries Plex||",
       "shows": {}
